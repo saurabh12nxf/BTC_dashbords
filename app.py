@@ -20,8 +20,14 @@ st.write(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 @st.cache_data(ttl=60)
 def get_btc_data():
     urls = [
+        # Binance official
         "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=600",
-        "https://api1.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=600"
+        
+        # Binance backup
+        "https://api1.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=600",
+        
+        # Vision (India safe)
+        "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=600"
     ]
 
     for url in urls:
@@ -36,7 +42,8 @@ def get_btc_data():
             df.set_index('time', inplace=True)
 
             return df['close']
-        except:
+
+        except Exception as e:
             continue
 
     return None
