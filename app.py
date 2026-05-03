@@ -79,7 +79,7 @@ simulated = S0 * np.exp(
     np.sqrt(sigma2 * dt) * Z
 )
 
-# -------- Better Interval --------
+# -------- Interval refinement --------
 median = np.median(simulated)
 low_raw, high_raw = np.percentile(simulated, [2.5, 97.5])
 
@@ -133,9 +133,7 @@ if os.path.exists("backtest_results.jsonl"):
     coverage = ((df_bt["low"] <= df_bt["actual"]) & (df_bt["actual"] <= df_bt["high"])).mean()
     avg_width = (df_bt["high"] - df_bt["low"]).mean()
 
-    # -------- Winkler Score --------
     alpha = 0.05
-
     def winkler(row):
         width = row["high"] - row["low"]
         if row["low"] <= row["actual"] <= row["high"]:
@@ -156,13 +154,14 @@ else:
     st.warning("Backtest file not found")
 
 # ===============================
-# 🔥 PART C — PERSISTENCE
+# 🔥 PART C — FINAL FIXED VERSION
 # ===============================
 
 st.subheader("Prediction History")
 
 file_path = "history.jsonl"
 
+# -------- New Record --------
 new_record = {
     "candle_time": str(prices.index[-1]),
     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -172,41 +171,55 @@ new_record = {
     "actual": None
 }
 
+# -------- Load existing safely --------
 existing = []
 if os.path.exists(file_path):
     with open(file_path, "r") as f:
         for line in f:
             try:
-                existing.append(json.loads(line))
+                record = json.loads(line)
+                
+                # 🔥 FIX: ensure backward compatibility
+                if "candle_time" not in record:
+                    record["candle_time"] = record.get("timestamp")
+                
+                existing.append(record)
             except:
                 pass
 
-last_candle = existing[-1].get("candle_time") if existing else None
+# -------- Save only if new candle --------
+last_candle = existing[-1]["candle_time"] if existing else None
 
 if not existing or last_candle != new_record["candle_time"]:
     with open(file_path, "a") as f:
         f.write(json.dumps(new_record) + "\n")
 
+# -------- Reload history --------
 history = []
 if os.path.exists(file_path):
     with open(file_path, "r") as f:
         for line in f:
             try:
-                history.append(json.loads(line))
+                record = json.loads(line)
+                if "candle_time" not in record:
+                    record["candle_time"] = record.get("timestamp")
+                history.append(record)
             except:
                 pass
 
+# -------- FIXED ACTUAL FILL --------
 for record in history:
     if record.get("actual") is None:
-        ts = record.get("candle_time")
-        if ts:
-            try:
-                ts = pd.to_datetime(ts)
-                if ts in prices.index:
-                    record["actual"] = float(prices.loc[ts])
-            except:
-                pass
+        try:
+            ct = pd.to_datetime(record["candle_time"])
+            next_ct = ct + pd.Timedelta(hours=1)
 
+            if next_ct in prices.index:
+                record["actual"] = float(prices.loc[next_ct])
+        except:
+            pass
+
+# -------- Display --------
 if history:
     df_hist = pd.DataFrame(history)
     st.dataframe(df_hist.tail(20))
