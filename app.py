@@ -20,13 +20,8 @@ st.write(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 @st.cache_data(ttl=60)
 def get_btc_data():
     urls = [
-        # Binance official
         "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=600",
-        
-        # Binance backup
         "https://api1.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=600",
-        
-        # Vision (India safe)
         "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=600"
     ]
 
@@ -43,7 +38,7 @@ def get_btc_data():
 
             return df['close']
 
-        except Exception as e:
+        except:
             continue
 
     return None
@@ -84,25 +79,24 @@ simulated = S0 * np.exp(
     np.sqrt(sigma2 * dt) * Z
 )
 
-# -------- Better Interval (REDUCES WIDTH) --------
+# -------- Better Interval --------
 median = np.median(simulated)
 low_raw, high_raw = np.percentile(simulated, [2.5, 97.5])
 
 low = median - (median - low_raw) * 0.9
 high = median + (high_raw - median) * 0.9
 
-# slight shrink (improves Winkler)
 spread = high - low
 low += 0.03 * spread
 high -= 0.03 * spread
 
-# -------- Metrics --------
+# -------- Display --------
 col1, col2, col3 = st.columns(3)
 col1.metric("BTC Price (Closed)", f"${current_price:.2f}")
 col2.metric("Low (95%)", f"${low:.2f}")
 col3.metric("High (95%)", f"${high:.2f}")
 
-# -------- Chart (PROPER RIBBON) --------
+# -------- Chart --------
 last_50 = prices.iloc[-50:]
 future_time = last_50.index[-1] + pd.Timedelta(hours=1)
 
@@ -111,7 +105,6 @@ fig, ax = plt.subplots(figsize=(10, 5))
 ax.plot(last_50.index, last_50.values, label="BTC Price", color='blue')
 ax.axvline(last_50.index[-1], linestyle='--', color='gray', label="Now")
 
-# ribbon (correct style)
 ax.fill_between(
     [last_50.index[-1], future_time],
     [low, low],
@@ -140,15 +133,30 @@ if os.path.exists("backtest_results.jsonl"):
     coverage = ((df_bt["low"] <= df_bt["actual"]) & (df_bt["actual"] <= df_bt["high"])).mean()
     avg_width = (df_bt["high"] - df_bt["low"]).mean()
 
+    # -------- Winkler Score --------
+    alpha = 0.05
+
+    def winkler(row):
+        width = row["high"] - row["low"]
+        if row["low"] <= row["actual"] <= row["high"]:
+            return width
+        elif row["actual"] < row["low"]:
+            return width + (2/alpha)*(row["low"] - row["actual"])
+        else:
+            return width + (2/alpha)*(row["actual"] - row["high"])
+
+    winkler_score = df_bt.apply(winkler, axis=1).mean()
+
     col4, col5, col6 = st.columns(3)
     col4.metric("Coverage (95%)", f"{coverage:.2%}")
     col5.metric("Avg Width", f"{avg_width:.0f}")
-    col6.metric("Winkler", "Computed")
+    col6.metric("Winkler", f"{winkler_score:.0f}")
+
 else:
-    st.write("Backtest file not found")
+    st.warning("Backtest file not found")
 
 # ===============================
-# 🔥 PART C — PERSISTENCE FIXED
+# 🔥 PART C — PERSISTENCE
 # ===============================
 
 st.subheader("Prediction History")
@@ -164,7 +172,6 @@ new_record = {
     "actual": None
 }
 
-# load existing safely
 existing = []
 if os.path.exists(file_path):
     with open(file_path, "r") as f:
@@ -180,7 +187,6 @@ if not existing or last_candle != new_record["candle_time"]:
     with open(file_path, "a") as f:
         f.write(json.dumps(new_record) + "\n")
 
-# reload history
 history = []
 if os.path.exists(file_path):
     with open(file_path, "r") as f:
@@ -190,7 +196,6 @@ if os.path.exists(file_path):
             except:
                 pass
 
-# fill actuals
 for record in history:
     if record.get("actual") is None:
         ts = record.get("candle_time")
