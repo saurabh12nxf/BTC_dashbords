@@ -159,12 +159,20 @@ else:
 
 st.subheader("Prediction History")
 
+# -------- Debug Info --------
+st.write(f"🔍 **Debug Info:**")
+st.write(f"- Current candle time: `{str(prices.index[-1])}`")
+st.write(f"- Current timestamp: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`")
+
 file_path = "history.jsonl"
 
 # -------- New Record --------
+current_time = datetime.now()
+current_candle_time = str(prices.index[-1])
+
 new_record = {
-    "candle_time": str(prices.index[-1]),
-    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    "candle_time": current_candle_time,
+    "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
     "price": float(current_price),
     "low": float(low),
     "high": float(high),
@@ -187,12 +195,35 @@ if os.path.exists(file_path):
             except:
                 pass
 
-# -------- Save only if new candle --------
-last_candle = existing[-1]["candle_time"] if existing else None
+# -------- FIXED: Save logic with time-based persistence --------
+should_save = False
 
-if not existing or last_candle != new_record["candle_time"]:
+if not existing:
+    # No history yet, save first record
+    should_save = True
+else:
+    last_record = existing[-1]
+    last_candle_time = last_record["candle_time"]
+    last_timestamp = pd.to_datetime(last_record["timestamp"])
+    
+    # Save if:
+    # 1. New candle time (normal case)
+    # 2. OR same candle but more than 15 minutes passed (stuck candle fix)
+    if last_candle_time != current_candle_time:
+        should_save = True
+    elif (current_time - last_timestamp).total_seconds() > 900:  # 15 minutes
+        should_save = True
+        st.warning("⚠️ Saving duplicate candle - API may be stuck")
+
+if should_save:
     with open(file_path, "a") as f:
         f.write(json.dumps(new_record) + "\n")
+    st.success(f"✅ Saved new prediction for {current_candle_time}")
+else:
+    if existing:
+        last_record = existing[-1]
+        time_diff = (current_time - pd.to_datetime(last_record["timestamp"])).total_seconds() / 60
+        st.info(f"⏳ No save needed - Last: `{last_record['candle_time']}` ({time_diff:.1f} min ago)")
 
 # -------- Reload history --------
 history = []
